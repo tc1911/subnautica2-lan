@@ -34,6 +34,13 @@ std::thread g_supervisor;
 sn2lan::control::Server g_control;
 
 std::atomic<int> g_probeStatus{0};  // 0=unknown, 1=not ready, 2=ready
+// Join-channel latency sampled after a successful join: the relay turn-around
+// is the best cheap proxy for what the game feels through the same frp hop.
+std::atomic<int> g_linkRttMs{0};    // latest sample
+std::atomic<int> g_linkMinMs{0};
+std::atomic<int> g_linkMaxMs{0};
+std::atomic<int> g_linkLossPct{0};
+std::atomic<bool> g_linkMonitorRunning{false};
 
 std::mutex g_noticeMutex;
 std::string g_notice;
@@ -148,6 +155,18 @@ void pushOverlayState() {
             state.line2 = "状态: 未检测到主机（也可以直接尝试连接）";
         }
         state.line2 += " · 隧道 peer " + std::to_string(peers);
+        const int rtt = g_linkRttMs.load(std::memory_order_relaxed);
+        if (rtt > 0) {
+            state.line2 += " · 延迟 " + std::to_string(rtt) + "ms";
+            const int peak = g_linkMaxMs.load(std::memory_order_relaxed);
+            if (peak > rtt + 30) {
+                state.line2 += "/峰值 " + std::to_string(peak) + "ms";
+            }
+            const int loss = g_linkLossPct.load(std::memory_order_relaxed);
+            if (loss > 0) {
+                state.line2 += " · 丢包 " + std::to_string(loss) + "%";
+            }
+        }
     }
     state.line3 = identitySummary();
     state.message = "F8 显示/隐藏 · 主机请先在游戏内创建多人游戏";
@@ -222,6 +241,58 @@ void supervisorLoop() {
     }
 }
 
+// Samples the join channel every few seconds so both ends can tell "high
+// latency" apart from "the relay stalls" when a session feels laggy.
+void startLinkMonitor(const std::string& host, uint16_t port) {
+    if (g_linkMonitorRunning.exchange(true)) {
+        return;
+    }
+    std::thread([host, port]() {
+        int ok = 0;
+        int fails = 0;
+        int sum = 0;
+        int minMs = 0;
+        int maxMs = 0;
+        int windowSum = 0;
+        int windowSamples = 0;
+        int windowFails = 0;
+        const uint64_t startedAt = GetTickCount64();
+        while (!g_stopRequested.load(std::memory_order_relaxed) &&
+               GetTickCount64() - startedAt < 30ULL * 60ULL * 1000ULL) {
+            Sleep(3000);
+            int rtt = 0;
+            sn2lan::control::Status status = sn2lan::control::Status::NotReady;
+            std::string error;
+            if (sn2lan::control::probe(host, port, &status, &error, &rtt)) {
+                ++ok;
+                sum += rtt;
+                minMs = (minMs == 0 || rtt < minMs) ? rtt : minMs;
+                maxMs = rtt > maxMs ? rtt : maxMs;
+                g_linkRttMs.store(rtt, std::memory_order_relaxed);
+                g_linkMinMs.store(minMs, std::memory_order_relaxed);
+                g_linkMaxMs.store(maxMs, std::memory_order_relaxed);
+                windowSum += rtt;
+                ++windowSamples;
+            } else {
+                ++fails;
+                ++windowFails;
+            }
+            g_linkLossPct.store(ok + fails > 0 ? (fails * 100) / (ok + fails) : 0,
+                                std::memory_order_relaxed);
+            if (windowSamples + windowFails >= 5) {
+                SN2_LOG_INFO("link %s:%u: rtt %dms (min %d max %d), %d/%d failed this window",
+                             host.c_str(), static_cast<unsigned>(port),
+                             windowSamples > 0 ? windowSum / windowSamples : 0, minMs, maxMs,
+                             windowFails, windowSamples + windowFails);
+                windowSum = 0;
+                windowSamples = 0;
+                windowFails = 0;
+            }
+        }
+        g_linkMonitorRunning.store(false);
+    }).detach();
+}
+
 void handleJoinRequest(const std::string& target) {
     if (!g_config.forceIpDriver) {
         sn2lan::requestJoin(target);
@@ -238,7 +309,8 @@ void handleJoinRequest(const std::string& target) {
                   "Connecting to " + host + ":" + std::to_string(port) + " ...", 15000);
         sn2lan::control::Status status = sn2lan::control::Status::NotReady;
         std::string error;
-        if (!sn2lan::control::probe(host, port, &status, &error)) {
+        int rttMs = 0;
+        if (!sn2lan::control::probe(host, port, &status, &error, &rttMs)) {
             SN2_LOG_WARN("handshake with %s:%u failed: %s", host.c_str(), port, error.c_str());
             g_probeStatus.store(0);
             setNotice("连接失败: " + error, "Connect failed: " + error, 8000);
@@ -253,8 +325,9 @@ void handleJoinRequest(const std::string& target) {
             setNotice("主机与客户端 mod 版本不一致", "Host and client mod versions differ", 8000);
             return;
         }
-        SN2_LOG_INFO("handshake ok, joining %s:%u", host.c_str(), port);
+        SN2_LOG_INFO("handshake ok in %d ms, joining %s:%u", rttMs, host.c_str(), port);
         g_probeStatus.store(2);
+        startLinkMonitor(host, port);
         setNotice("握手成功，正在进图…", "Handshake OK, joining ...", 8000);
         sn2lan::overlayHide();
         sn2lan::gameOverlayHide();

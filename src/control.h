@@ -37,7 +37,10 @@ private:
 };
 
 // Client side. TCP connect + HELLO + WELCOME with short timeouts.
-bool probe(const std::string& address, uint16_t port, Status* status, std::string* error);
+// rttMs (optional) receives the HELLO -> WELCOME round trip in milliseconds,
+// i.e. the path latency as seen by the join channel.
+bool probe(const std::string& address, uint16_t port, Status* status, std::string* error,
+           int* rttMs = nullptr);
 
 }  // namespace control
 }  // namespace sn2lan

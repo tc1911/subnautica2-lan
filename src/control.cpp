@@ -274,7 +274,11 @@ void Server::stop() {
     delete impl;
 }
 
-bool probe(const std::string& address, uint16_t port, Status* status, std::string* error) {
+bool probe(const std::string& address, uint16_t port, Status* status, std::string* error,
+           int* rttMs) {
+    if (rttMs != nullptr) {
+        *rttMs = 0;
+    }
     WsaGuard wsa;
     if (!wsa.ok()) {
         if (error) {
@@ -342,6 +346,7 @@ bool probe(const std::string& address, uint16_t port, Status* status, std::strin
         }
     }
 
+    const auto sentAt = std::chrono::steady_clock::now();
     Header hello{kMagic, kProtocolVersion, kTypeHello, sizeof(Hello)};
     Hello payload{kProtocolVersion, 0};
     if (!sendAll(sock, &hello, sizeof(hello)) || !sendAll(sock, &payload, sizeof(payload))) {
@@ -386,6 +391,11 @@ bool probe(const std::string& address, uint16_t port, Status* status, std::strin
                 closesocket(sock);
                 if (status) {
                     *status = static_cast<Status>(welcome.status);
+                }
+                if (rttMs != nullptr) {
+                    const auto elapsed = std::chrono::steady_clock::now() - sentAt;
+                    *rttMs = static_cast<int>(
+                        std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
                 }
                 return true;
             }
