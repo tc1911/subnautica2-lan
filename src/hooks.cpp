@@ -530,7 +530,54 @@ std::wstring gameLoginOptions() {
     return cached;
 }
 
+// Frame pacing, measured on the game's own ImGui frame boundary. It is the
+// cheapest way to tell "the network is laggy" from "this machine renders
+// slowly" when one player reports stutter but the others are fine.
+void sampleFramePerf() {
+    static LARGE_INTEGER frequency{};
+    if (frequency.QuadPart == 0 && !QueryPerformanceFrequency(&frequency)) {
+        return;
+    }
+    static LARGE_INTEGER previous{};
+    static uint64_t windowStart = GetTickCount64();
+    static uint32_t frames = 0;
+    static uint32_t hitches = 0;
+    static double worstMs = 0.0;
+    static double previousMs = 0.0;
+
+    LARGE_INTEGER now{};
+    QueryPerformanceCounter(&now);
+    if (previous.QuadPart != 0) {
+        const double deltaMs =
+            static_cast<double>(now.QuadPart - previous.QuadPart) * 1000.0 / static_cast<double>(frequency.QuadPart);
+        // Ignore the frame that follows a multi-second stall (level load, alt-tab).
+        if (previousMs < 3000.0) {
+            ++frames;
+            if (deltaMs > 100.0) {
+                ++hitches;
+            }
+            if (deltaMs > worstMs) {
+                worstMs = deltaMs;
+            }
+        }
+        previousMs = deltaMs;
+    }
+    previous = now;
+
+    const uint64_t nowTick = GetTickCount64();
+    if (nowTick - windowStart >= 30000 && frames > 0) {
+        const double fps = static_cast<double>(frames) * 1000.0 / static_cast<double>(nowTick - windowStart);
+        SN2_LOG_INFO("perf: %.1f fps, worst frame %.0f ms, %u stalls over 100 ms in the last 30s", fps,
+                     worstMs, hitches);
+        windowStart = nowTick;
+        frames = 0;
+        hitches = 0;
+        worstMs = 0.0;
+    }
+}
+
 void detourImGuiNewFrame() {
+    sampleFramePerf();
     sn2lan::gameOverlayFeedInput();
     if (g_originalImGuiNewFrame != nullptr) {
         g_originalImGuiNewFrame();
