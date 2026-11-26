@@ -1,0 +1,31 @@
+# frp client. Run this on the machine that HOSTS the Subnautica 2 session:
+#   frpc -c frpc.toml
+serverAddr = "your.vps.example.com"
+serverPort = 7000
+
+auth.method = "token"
+auth.token = "CHANGE-ME-long-random-token"
+
+# Gameplay traffic (matches bind_port in config.ini).
+[[proxies]]
+name = "sn2lan-gameplay"
+type = "udp"
+localIP = "127.0.0.1"
+localPort = 28015
+remotePort = 28015
+
+# IP mode (force_ip_driver = 1): game data is UDP 7777, the join handshake is
+# TCP 7777. Same remotePort, two proxies.
+[[proxies]]
+name = "sn2lan-net-udp"
+type = "udp"
+localIP = "127.0.0.1"
+localPort = 7777
+remotePort = 7777
+
+[[proxies]]
+name = "sn2lan-net-tcp"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 7777
+remotePort = 7777

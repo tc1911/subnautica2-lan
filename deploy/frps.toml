@@ -1,0 +1,19 @@
+# frp server (public VPS). Run: frps -c frps.toml
+bindAddr = "0.0.0.0"
+bindPort = 7000
+
+# Protect the control port.
+auth.method = "token"
+auth.token = "CHANGE-ME-long-random-token"
+
+# Optional: dashboard
+webServer.addr = "0.0.0.0"
+webServer.port = 7500
+webServer.user = "admin"
+webServer.password = "CHANGE-ME"
+
+# UDP proxy traffic (gameplay) is forwarded on the port the client asks for.
+allowPorts = [
+  { start = 28015, end = 28020 },
+  { start = 7777, end = 7777 },
+]
