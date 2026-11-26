@@ -23,18 +23,25 @@ SN2LAN host package (${version})
 Install (no UE4SS needed):
   1. Copy dwmapi.dll and config.ini into Subnautica2\\Binaries\\Win64\\
      (next to Subnautica2-Win64-Test.exe). Logs land in sn2lan.log there.
-  2. Start the game and wait for the main menu. The EOS login can take up to a
-     minute; creating a session before it finishes fails with
+  2. Start Steam, log in, then start the game and wait for the main menu.
+     Creating a session before the EOS login finishes fails with
      "Could not retrieve UniqueNetId".
-  3. Click "Create multiplayer" (创建多人游戏) and load your save. The log then
-     shows "IpNetDriver listening on port 7777".
-  4. Publish UDP 7777 (game data) and TCP 7777 (join handshake) through frp or
-     a router forward. A ready frpc.toml is in deploy/frpc.toml of the source
-     repo; both proxies use remotePort 7777.
+  3. Click "Create multiplayer" and load your save. sn2lan.log then shows:
+       net driver hook installed: StaticLoadClass -> UIpNetDriver
+       control server listening on TCP 7777
+       IpNetDriver listening on port 7777
+  4. Publish TCP 7777 (join handshake) and UDP 7777 (game data) through frp or
+     a router forward - both use remotePort 7777. frpc.toml in this package is
+     ready; edit serverAddr/token first.
+  5. In-game overlay: F8 shows/hides the panel, F9 joins by address. The host
+     does not need it to play, but it shows the same handshake feedback.
   6. Voice chat is disabled in IP mode (no EOS voice session exists).
   7. Linux/Proton: launch with WINEDLLOVERRIDES="dwmapi=n,b" %command%
      (or set dwmapi=native,builtin in the prefix registry).
   8. Uninstall: delete dwmapi.dll and config.ini.
+
+Every player must run the same package build: compare the first line of
+sn2lan.log ("SN2LAN ${version} (build ...)").
 
 Why not UE4SS: no UE4SS build works with game build 533 (the SN2 fork is stuck
 on the May build and upstream v4.0.0 crashes after the lobby loads), so the mod
@@ -48,21 +55,29 @@ Install (no UE4SS needed):
   1. Copy dwmapi.dll and config.ini into Subnautica2\\Binaries\\Win64\\
      (next to Subnautica2-Win64-Test.exe). Logs land in sn2lan.log there.
   2. config.ini already points at the host: ${host_addr}
-     (the handshake uses TCP 7777, game data UDP 7777).
-  3. Start the game, wait for the main menu, then press F8 (or F9 to connect) to open the SN2LAN
-     overlay. The address box already contains ${host_addr}:7777 - click
-     "连接" (join) once the host is hosting; the overlay reports "还没开房"
-     if the host has not clicked Create multiplayer yet. The mod reads the account login
-     string from the game log so the host can match your save, and falls back
-     to your SteamID. Watch sn2lan.log for "manual join: ClientTravel to ...".
-  4. The host must have TCP 7777 and UDP 7777 reachable.
-  5. Identity: with SteamID you keep your save/items; the SonarPlayerId is only
-     present when the game can reach api.live.subnautica.net. Without both you
-     join as a guest and cannot create a character.
-  6. Voice chat is disabled in IP mode (no EOS voice session exists).
-  7. Linux/Proton: launch with WINEDLLOVERRIDES="dwmapi=n,b" %command%
+     (TCP 7777 handshake, UDP 7777 game data). If it still says
+     YOUR-HOST-IP, edit the file or just type the address in the panel.
+  3. Start the game, wait for the main menu, then press F8 to open the SN2LAN
+     panel (or F9 to connect straight away - no mouse needed). Click Connect
+     once the host has clicked "Create multiplayer"; until then the panel
+     reports that the host is not ready yet.
+  4. Keyboard: Tab / Up / Down select a row, Enter edits the address or port
+     (Enter again to finish) or connects, Esc closes the panel. The first run
+     asks you to calibrate the mouse: click the blue "+" twice; press F7 to
+     redo it if clicks ever land off target.
+  5. Success shows in sn2lan.log:
+       handshake ok, joining <host>:7777
+       manual join: ClientTravel to <host>:7777?...
+  6. Identity: with a SteamID you keep your save/items; the SonarPlayerId is
+     only present when the game can reach api.live.subnautica.net. Without both
+     you join as a guest and cannot create a character.
+  7. Voice chat is disabled in IP mode (no EOS voice session exists).
+  8. Linux/Proton: launch with WINEDLLOVERRIDES="dwmapi=n,b" %command%
      (or set dwmapi=native,builtin in the prefix registry).
-  8. Uninstall: delete dwmapi.dll and config.ini.
+  9. Uninstall: delete dwmapi.dll and config.ini.
+
+Every player must run the same package build: compare the first line of
+sn2lan.log ("SN2LAN ${version} (build ...)").
 
 Why not UE4SS: no UE4SS build works with game build 533 (the SN2 fork is stuck
 on the May build and upstream v4.0.0 crashes after the lobby loads), so the mod

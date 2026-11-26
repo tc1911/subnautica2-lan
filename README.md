@@ -8,6 +8,12 @@
   地址默认 `主机IP:7777`；点「连接」或按 **F9** 直接连
 - 所有玩家都需要安装本 mod，游戏版本必须一致（当前 build 533）
 
+仓库：<https://github.com/tc1911/subnautica2-lan> ｜ 版本 `0.1.0` ｜ 支持 build 533
+
+> 主机和每个客户端都要用**同一份包**：对比 `sn2lan.log` 第一行的
+> `SN2LAN 0.1.0 (build ...)`。握手只校验协议号（目前都是 1），不同构建之间
+> 也可能握手成功却进不去，所以版本不一致要靠这行日志确认。
+
 支持的两种模式：
 
 | 模式 | `force_ip_driver` | 数据通道 | 说明 |
@@ -84,7 +90,7 @@ SN2 fork 的 1.0.0 会 `PS scan timed out`，上游 v4.0.0 进大厅后崩溃）
 
 1. `config.ini` 里填好 `host`（打包时用 `HOST_ADDR=你的公网地址` 预填，否则就是 `YOUR-HOST-IP`）。
 2. 启动游戏，等主菜单出现。
-3. 按 **F8** 打开游戏内面板：地址框默认是 `主机IP:7777`，点「Connect」或按 **F9**。
+3. 按 **F8** 打开游戏内面板：地址框默认是 `主机IP:7777`，点「Connect」按钮或按 **F9**。
    主机还没开房也可以点，连不上就再点一次。
 4. 叠加层底部会显示握手结果（「主机还没点创建多人游戏」/「连接失败: …」）；
    成功时日志出现：
@@ -116,22 +122,25 @@ SN2 fork 的 1.0.0 会 `PS scan timed out`，上游 v4.0.0 进大厅后崩溃）
 
 `dwmapi.dll` 用游戏自带的 ImGui 在主菜单/游戏里画一个面板，不需要切换窗口：
 
-- Role：主机或客户端、目标地址、握手/游戏端口
-- Status：主机是否已开房、探测结果、隧道 peer 数
-- Identity：是否已读到账号登录串（`SonarPlayerId`）
-- Host address / Port：**直接点击输入框即可编辑**（键盘输入，`Backspace`
-  删除，`Enter` 或 `Esc` 结束编辑），`Connect` 按当前地址与端口发起握手
-- **F8** 显示/隐藏，**F9** 用当前地址直接连接（不依赖鼠标，适合点击不方便时）
-- 纯键盘操作：**Tab / ↑↓** 在「地址 → 端口 → Connect → Hide」之间切换，**Enter** 开始编辑（再按 Enter 结束）或执行连接，**Esc** 收起面板
-- 鼠标点击：面板内点击会被 mod 截获注入 ImGui。若点击位置对不上（换分辨率、窗口被拖动、Linux + niri 这类会平移窗口的合成器），按 **F7** 重新校准：对着蓝色「+」点两下（面板会在两次点击之间移动），两次结果不一致会自动要求重来
-- `Hide`：收起面板
+- Role / Status / Identity：角色、目标地址、主机是否已开房、是否已读到登录串
+- Host address / Port：**点输入框即可编辑**（`Backspace` 删除，`Enter` 或 `Esc`
+  结束编辑）；`Connect` 按当前地址与端口发起握手，`Hide` 收起面板
 - 面板打开时，落在面板上的鼠标点击会被 mod 吃掉，不会误触游戏菜单
-- **位置校准**：第一次运行会显示 `SN2LAN setup`，对着蓝色 `+` 点两下（面板
-  会在两次点击之间移动），两次结果一致才生效（偏移存到
-  `Binaries\Win64\sn2lan_ui.txt`）；以后面板与鼠标错位按 **F7** 重来。
-  鼠标彻底不听话时可以删掉 `sn2lan_ui.txt` 再按 F7；**F9 完全不依赖鼠标**
-- 校准只做一次：同一次启动里若误点导致错位，按 **F7** 可以自愈（旧版本会
-  把误差越叠越大，已修）
+
+| 键 | 作用 |
+| --- | --- |
+| **F8** | 显示 / 隐藏面板 |
+| **F9** | 用当前地址直接连接（**完全不依赖鼠标**） |
+| **Tab / ↑ ↓** | 在「地址 → 端口 → Connect → Hide」之间切换（当前行前面有 `> `） |
+| **Enter** | 编辑选中的地址/端口；再按一次结束编辑；在 Connect / Hide 上按即执行 |
+| **Esc** | 收起面板 |
+| **F7** | 重新校准鼠标 |
+
+**位置校准**：第一次运行会显示 `SN2LAN setup`，对着蓝色 `+` 点两下（面板会在两次
+点击之间移动），两次结果一致才生效，偏移存到 `Binaries\Win64\sn2lan_ui.txt`。
+以后换了分辨率、拖动过窗口、或点击明显偏移时按 **F7** 重新点两下；如果越校越偏，
+删掉 `sn2lan_ui.txt` 再按 F7。Linux + niri 这类会平移窗口的合成器上，固定偏移
+本身不可靠（窗口被移动后坐标会漂），这时直接用键盘或 F9。
 
 面板用 ASCII 绘制（游戏自带 ImGui 字体没有中文字形）；桌面小窗版本仍保留，
 在 `config.ini` 里设 `overlay_mode = window` 可回退。若游戏 60 秒内没有产生
@@ -184,8 +193,13 @@ ImGui 帧（例如测试 harness），会自动回退到桌面小窗。
 | `EOS SDK module not found` | 确认 `Engine\Binaries\Win64\EOSSDK-Win64-Shipping.dll` 存在 |
 | `MH_CreateHook ... NOT_EXECUTABLE` | mod 与游戏版本不匹配（当前仅 build 533） |
 | 主机点创建报 `Could not retrieve UniqueNetId` | EOS 登录未完成，重启 Steam/游戏后再试 |
-| 客户端一直不进 | 看叠加层提示；连不上多半是 TCP/UDP 7777 未放通 |
+| `handshake ... cannot resolve host` | `config.ini` 里还是 `YOUR-HOST-IP`，或域名写错 |
+| `handshake ... no reply` | 主机侧没有 `control server listening on TCP 7777`（旧包/没启动），或 TCP 7777 没映射 |
+| `handshake ... connect timeout` | TCP 7777 不通：frp 只映射了 UDP、防火墙、云安全组 |
+| 握手成功但进不去 | 主机侧确认 `IpNetDriver listening on port 7777`；UDP 7777 是否映射 |
 | 进图瞬间崩溃 | 确认 `force_ip_driver=1` 且日志有 `voice chat tick suppressed` |
+| 面板点不动 / 点偏了 | 按 **F7** 对着 `+` 点两下重新校准，或删 `sn2lan_ui.txt`；也可用 Tab/Enter/F9 |
+| 某位玩家掉帧/卡顿 | 与网络无关：先用单人模式对照，排查首次着色器编译、GC、机器性能 |
 | 人物创建是灰的 | 登录串里连 SteamID 都没有，检查 `login_options` |
 
 ## 构建与测试

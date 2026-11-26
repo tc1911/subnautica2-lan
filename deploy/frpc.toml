@@ -6,7 +6,8 @@ serverPort = 7000
 auth.method = "token"
 auth.token = "CHANGE-ME-long-random-token"
 
-# Gameplay traffic (matches bind_port in config.ini).
+# EOS-tunnel gameplay traffic (matches bind_port in config.ini). Only needed
+# when force_ip_driver = 0.
 [[proxies]]
 name = "sn2lan-gameplay"
 type = "udp"
