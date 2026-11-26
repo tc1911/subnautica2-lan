@@ -4,6 +4,7 @@
 #include <windowsx.h>
 
 #include <atomic>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <mutex>
@@ -209,6 +210,11 @@ std::atomic<bool> g_calibrating{false};
 std::atomic<bool> g_calibHavePoint{false};
 std::atomic<int> g_calibX{0};
 std::atomic<int> g_calibY{0};
+std::atomic<int> g_calibStep{0};
+std::atomic<int> g_calibFirstX{0};
+std::atomic<int> g_calibFirstY{0};
+std::atomic<bool> g_calibX11{false};
+std::atomic<bool> g_calibMismatch{false};
 bool g_f8WasDown = false;
 bool g_f9WasDown = false;
 
@@ -305,9 +311,12 @@ LRESULT CALLBACK kbProc(int code, WPARAM wparam, LPARAM lparam) {
 LRESULT CALLBACK mouseProc(int code, WPARAM wparam, LPARAM lparam) {
     if (code == HC_ACTION && g_visible.load(std::memory_order_relaxed)) {
         if (wparam == WM_LBUTTONDOWN || wparam == WM_LBUTTONUP) {
-            int ix = 0;
-            int iy = 0;
-            if (!x11ImguiPos(ix, iy)) {
+            // raw = pointer position in the mapping input space (X11 client
+            // coordinates when available, Win32 client coordinates otherwise).
+            int rawX = 0;
+            int rawY = 0;
+            const bool haveX11 = x11ImguiPos(rawX, rawY);
+            if (!haveX11) {
                 POINT pt{0, 0};
                 if (g_clientValid.load(std::memory_order_relaxed)) {
                     pt.x = g_clientX.load(std::memory_order_relaxed);
@@ -319,19 +328,24 @@ LRESULT CALLBACK mouseProc(int code, WPARAM wparam, LPARAM lparam) {
                         ScreenToClient(hwndFallback, &pt);
                     }
                 }
-                ix = pt.x - g_offsetX.load(std::memory_order_relaxed);
-                iy = pt.y - g_offsetY.load(std::memory_order_relaxed);
+                rawX = pt.x;
+                rawY = pt.y;
             }
+            const int ix = haveX11 ? rawX : rawX - g_offsetX.load(std::memory_order_relaxed);
+            const int iy = haveX11 ? rawY : rawY - g_offsetY.load(std::memory_order_relaxed);
             if (wparam == WM_LBUTTONDOWN) {
                 g_clickX.store(ix, std::memory_order_relaxed);
                 g_clickY.store(iy, std::memory_order_relaxed);
-                SN2_LOG_DEBUG("mouse hook: click imgui=%d,%d calib=%d", ix, iy,
+                SN2_LOG_DEBUG("mouse hook: click imgui=%d,%d raw=%d,%d calib=%d", ix, iy, rawX, rawY,
                               g_calibrating.load(std::memory_order_relaxed) ? 1 : 0);
             }
             if (g_calibrating.load(std::memory_order_relaxed)) {
                 if (wparam == WM_LBUTTONDOWN) {
-                    g_calibX.store(ix, std::memory_order_relaxed);
-                    g_calibY.store(iy, std::memory_order_relaxed);
+                    // Store the raw position: the offset is solved as raw - target,
+                    // so a stale offset is never subtracted a second time.
+                    g_calibX.store(rawX, std::memory_order_relaxed);
+                    g_calibY.store(rawY, std::memory_order_relaxed);
+                    g_calibX11.store(haveX11, std::memory_order_relaxed);
                     g_calibHavePoint.store(true, std::memory_order_relaxed);
                 }
                 return 1;
@@ -448,6 +462,8 @@ bool gameOverlayResolve(void* exeBase) {
         g_offsetY.store(oy);
         SN2_LOG_INFO("overlay alignment restored: offset=(%d,%d)", ox, oy);
     } else {
+        g_calibStep.store(0);
+        g_calibMismatch.store(false);
         g_calibrating.store(true);
         SN2_LOG_INFO("overlay alignment: first run, calibration needed");
     }
@@ -600,6 +616,8 @@ void gameOverlayDraw() {
     if (f7Down && !f7WasDown) {
         if (!x11Api().ok) {
             g_calibrating.store(true);
+            g_calibStep.store(0);
+            g_calibMismatch.store(false);
             g_calibHavePoint.store(false);
             g_visible = true;
         }
@@ -607,37 +625,71 @@ void gameOverlayDraw() {
     f7WasDown = f7Down;
 
     if (g_calibrating.load(std::memory_order_relaxed)) {
-        static const Vec2 kCalibSize{560.0f, 190.0f};
-        static const Vec2 kPosition{40.0f, 90.0f};
+        static const Vec2 kCalibSize{560.0f, 205.0f};
+        // Two clicks at two different spots: a stray click (clicking the menu to
+        // focus the window, for example) can never pass for a calibration.
+        static const Vec2 kPositions[2] = {{40.0f, 90.0f}, {420.0f, 420.0f}};
         static const Vec2 kZero{0.0f, 0.0f};
+        const int step = g_calibStep.load(std::memory_order_relaxed) & 1;
         Vec2 target{0.0f, 0.0f};
         bool haveTarget = false;
-        g_setNextWindowPos(&kPosition, 1, &kZero);
+        g_setNextWindowPos(&kPositions[step], 1, &kZero);
         g_setNextWindowSize(&kCalibSize, 1);
         if (g_begin("SN2LAN setup##calib", nullptr, 0)) {
-            g_text("First run: align the panel with your screen.", nullptr);
-            g_text("Click the + button below (once).", nullptr);
+            char line[160];
+            std::snprintf(line, sizeof(line), "Mouse alignment: click the blue + (step %d of 2).", step + 1);
+            g_text(line, nullptr);
+            g_text(g_calibMismatch.load(std::memory_order_relaxed)
+                       ? "Those two clicks did not match; click the + again."
+                       : "The panel moves between the two clicks.",
+                   nullptr);
             if (g_getCursorScreenPos != nullptr) {
                 g_getCursorScreenPos(&target);
                 haveTarget = true;
             }
             static const Vec2 kTargetSize{48.0f, 48.0f};
             g_button("+##calibTarget", &kTargetSize);
-            g_text("Press F7 later if the panel and the mouse drift apart.", nullptr);
+            g_text("F9 joins without the mouse, and F7 restarts this at any time.", nullptr);
         }
         g_end();
-        if (haveTarget && g_calibHavePoint.load(std::memory_order_relaxed)) {
-            const int clickX = g_calibX.load(std::memory_order_relaxed);
-            const int clickY = g_calibY.load(std::memory_order_relaxed);
-            const int ox = clickX - static_cast<int>(target.x + 24.0f);
-            const int oy = clickY - static_cast<int>(target.y + 24.0f);
-            if (ox > -2000 && ox < 2000 && oy > -2000 && oy < 2000) {
-                g_offsetX.store(ox);
-                g_offsetY.store(oy);
-                g_calibHavePoint.store(false);
-                g_calibrating.store(false);
+        if (haveTarget && g_calibHavePoint.exchange(false, std::memory_order_relaxed)) {
+            const int rawX = g_calibX.load(std::memory_order_relaxed);
+            const int rawY = g_calibY.load(std::memory_order_relaxed);
+            if (g_calibX11.load(std::memory_order_relaxed)) {
+                // The pointer already arrives in imgui space; no offset needed.
+                g_offsetX.store(0, std::memory_order_relaxed);
+                g_offsetY.store(0, std::memory_order_relaxed);
+                g_calibrating.store(false, std::memory_order_relaxed);
+                g_calibMismatch.store(false, std::memory_order_relaxed);
+                g_calibStep.store(0, std::memory_order_relaxed);
+                saveOffsets(0, 0);
+                SN2_LOG_INFO("overlay alignment: X11 pointer mapping in use, offsets cleared");
+                return;
+            }
+            const int ox = rawX - static_cast<int>(target.x + 24.0f);
+            const int oy = rawY - static_cast<int>(target.y + 24.0f);
+            if (step == 0) {
+                g_calibFirstX.store(ox, std::memory_order_relaxed);
+                g_calibFirstY.store(oy, std::memory_order_relaxed);
+                g_calibStep.store(1, std::memory_order_relaxed);
+                g_calibMismatch.store(false, std::memory_order_relaxed);
+                SN2_LOG_INFO("overlay alignment: click 1 at %d,%d (target %d,%d); click the + again", rawX,
+                             rawY, static_cast<int>(target.x), static_cast<int>(target.y));
+            } else if (std::abs(ox - g_calibFirstX.load(std::memory_order_relaxed)) <= 24 &&
+                       std::abs(oy - g_calibFirstY.load(std::memory_order_relaxed)) <= 24) {
+                g_offsetX.store(ox, std::memory_order_relaxed);
+                g_offsetY.store(oy, std::memory_order_relaxed);
+                g_calibrating.store(false, std::memory_order_relaxed);
+                g_calibMismatch.store(false, std::memory_order_relaxed);
+                g_calibStep.store(0, std::memory_order_relaxed);
                 saveOffsets(ox, oy);
                 SN2_LOG_INFO("overlay alignment calibrated: offset=(%d,%d)", ox, oy);
+            } else {
+                SN2_LOG_INFO("overlay alignment: clicks disagree (first %d,%d, second %d,%d), retrying",
+                             g_calibFirstX.load(std::memory_order_relaxed),
+                             g_calibFirstY.load(std::memory_order_relaxed), ox, oy);
+                g_calibStep.store(0, std::memory_order_relaxed);
+                g_calibMismatch.store(true, std::memory_order_relaxed);
             }
         }
         return;

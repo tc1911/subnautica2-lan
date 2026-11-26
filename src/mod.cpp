@@ -286,7 +286,7 @@ bool startInternal() {
     sn2lan::installCrashLogger();
     SN2_LOG_INFO("crash logger installed");
 
-    SN2_LOG_INFO("SN2LAN 0.1.0 loading from %ls", g_moduleDir.c_str());
+    SN2_LOG_INFO("SN2LAN 0.1.0 (build " __DATE__ " " __TIME__ ") loading from %ls", g_moduleDir.c_str());
 
     if (!configOk) {
         SN2_LOG_ERROR("cannot load config.ini: %s", error.c_str());
